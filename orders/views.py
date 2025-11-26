@@ -9,6 +9,8 @@ from .serializers import OrderItemSerializer, OrderSerializer
 from django.shortcuts import get_object_or_404
 import stripe
 from django.conf import settings
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 
 
 @api_view(['POST'])
@@ -67,6 +69,9 @@ def create_payment_intent(request, id):
     if not items_query.exists():
         return Response(data={'msg': 'Order does not contain any items'}, status=status.HTTP_400_BAD_REQUEST)
     
+    if order_object.status != 'pending':
+        return Response(data={'msg': 'Payment intent is already created for this order.'}, status=status.HTTP_200_OK)
+    
     # calculating total sum of an order
     total_price = int(sum(item.quantity * item.product.price for item in items_query) * 100)
 
@@ -85,17 +90,54 @@ def create_payment_intent(request, id):
             }
         )
 
-    # creating session for payment
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=line_items,
-            mode='payment',
-            success_url='http://127.0.0.1:8000/orders/success/',
-            cancel_url='http://127.0.0.1:8000/orders/cancel/'
-        )
+    # creating intent for payment
+    intent = stripe.PaymentIntent.create(
+        amount=total_price,
+        currency='usd',
+        payment_method="pm_card_visa",
+        confirm=True, # auto-confirm, change it for production
+        automatic_payment_methods={'enabled': True, "allow_redirects": "never"},
+        metadata={
+            'order_id': order_object.id,
+            'user_id': request.user.id,
+        }
+    )
 
-        # USE THIS SESSION ID FOR REDIRECT TO STRIPE'S CHECKOUT PAGE
-        return Response({"session_id": session.id}, status=status.HTTP_200_OK)
+    # saving payment intent id to the db
+    order_object.payment_intent_id = intent["id"]
+    order_object.save()
+
+    # returning response with client's secret for payment
+    return Response(data={'msg': 'Payment intent created successfully', 'client_secret': intent['client_secret']})
+
+
+@csrf_exempt
+def stripe_webhook(request):
+    # getting request data
+    payload = request.body
+    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+
+    # creating a stripe's event
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+        )
     except Exception as error:
-        return Response({"error": str(error)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        print("Webhook error:", error)
+        print("Sig header:", sig_header)
+        return HttpResponse(status=400)
+
+    # logic for successful payment
+    if event['type'] == 'payment_intent.succeeded':
+        intent = event['data']['object']
+        payment_intent_id = intent['id']
+
+        # getting required order and marking it as paid
+        try:
+            order = Order.objects.get(payment_intent_id=payment_intent_id)
+            order.status = 'paid'
+            order.save()
+        except Order.DoesNotExist:
+            return HttpResponse(status=404)
+
+    return HttpResponse(status=200)

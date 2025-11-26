@@ -14,6 +14,7 @@ class Order(models.Model):
                  ('completed', 'Completed')]
     
     status = models.CharField(max_length=20, choices=status_choices, default='pending')
+    payment_intent_id = models.CharField(max_length=200, null=True, blank=True)
 
 
 class OrderItem(models.Model):
