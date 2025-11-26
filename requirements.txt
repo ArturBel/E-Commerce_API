@@ -1,0 +1,7 @@
+django
+djangorestframework
+argon2-cffi
+djangorestframework-simplejwt
+psycopg2-binary
+stripe
+django-environ
