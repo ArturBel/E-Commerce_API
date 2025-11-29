@@ -1,4 +1,4 @@
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
 from rest_framework import status
 from users.models import CustomUser
@@ -6,10 +6,20 @@ from .models import Product
 from .serializers import ProductSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.throttling import UserRateThrottle
+
+
+# rate limiters (throttle)
+class GetProductRateThrottle(UserRateThrottle):
+    rate = '5/min'
+
+class PostProductRateThrottle(UserRateThrottle):
+    rate = '1/min'
 
 
 @permission_classes([IsAuthenticated])
 @api_view(['GET'])
+@throttle_classes([GetProductRateThrottle])
 def all_products(request):
     # listing all products
     queryset = Product.objects.all().order_by('-created_at')
@@ -26,6 +36,7 @@ def all_products(request):
 
 @permission_classes([IsAuthenticated])
 @api_view(['GET'])
+@throttle_classes([GetProductRateThrottle])
 def my_products(request):
     # finding required user by id
     try:
@@ -50,6 +61,7 @@ def my_products(request):
 
 @permission_classes([IsAuthenticated])
 @api_view(['POST'])
+@throttle_classes([PostProductRateThrottle])
 def post_new_product(request):
     # finding required user
     try:
