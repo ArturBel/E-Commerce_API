@@ -7,6 +7,7 @@ from .serializers import ProductSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.throttling import UserRateThrottle
+from django.db.models import Q
 
 
 # rate limiters (throttle)
@@ -23,6 +24,21 @@ class PostProductRateThrottle(UserRateThrottle):
 def all_products(request):
     # listing all products
     queryset = Product.objects.all().order_by('-created_at')
+
+    # filtering products
+    min_price = request.GET.get('min_price')
+    max_price = request.GET.get('max_price')
+    search = request.GET.get('search')
+
+    if min_price:
+        queryset = queryset.filter(price__gte=min_price)
+    if max_price:
+        queryset = queryset.filter(price__lte=max_price)
+    if search:
+        queryset = queryset.filter(
+            Q(name__icontains=search) |
+            Q(description__icontains=search)
+        )
 
     # paginating and serializing queryset
     paginator = PageNumberPagination()
@@ -45,8 +61,25 @@ def my_products(request):
     except CustomUser.DoesNotExist:
         return Response(data=request.data, status=status.HTTP_404_NOT_FOUND)
     
-    # listing all products user posted, if any, via pagination
+    # listing all products user posted, if any
     queryset = Product.objects.filter(seller=request.user.pk).order_by('-created_at')
+
+    # filtering products
+    min_price = request.GET.get('min_price')
+    max_price = request.GET.get('max_price')
+    search = request.GET.get('search')
+
+    if min_price:
+        queryset = queryset.filter(price__gte=min_price)
+    if max_price:
+        queryset = queryset.filter(price__lte=max_price)
+    if search:
+        queryset = queryset.filter(
+            Q(name__icontains=search) |
+            Q(description__icontains=search)
+        )
+    
+
     if queryset:
         # paginating and serializing queryset
         paginator = PageNumberPagination()
@@ -88,8 +121,8 @@ def product_by_id(request, pk):
     try:
         user_id = request.user.pk
         productObject = Product.objects.get(pk=pk, seller=user_id)
-    except CustomUser.DoesNotExist:
-        return Response(data=request.data, status=status.HTTP_404_NOT_FOUND)
+    except CustomUser.DoesNotExist and Product.DoesNotExist:
+        return Response(data={'msg': 'Invalid request'}, status=status.HTTP_404_NOT_FOUND)
     
     # getting product information by id
     if request.method == 'GET':
