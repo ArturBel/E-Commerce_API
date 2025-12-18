@@ -5,3 +5,5 @@ djangorestframework-simplejwt
 psycopg2-binary
 stripe
 django-environ
+django-redis
+redis

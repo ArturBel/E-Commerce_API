@@ -8,6 +8,11 @@ from rest_framework.permissions import IsAuthenticated
 from argon2.exceptions import VerifyMismatchError
 from django.utils import timezone
 from rest_framework.throttling import UserRateThrottle
+from rest_framework.exceptions import AuthenticationFailed
+from django.core.cache import cache
+import jwt
+from ecommerce_api import settings
+import hashlib
 
 
 # rate limiter for user authorization
@@ -19,6 +24,19 @@ class AuthorizationThrottle(UserRateThrottle):
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user=user)
     return {'access': str(refresh.access_token), 'refresh': str(refresh)}
+
+
+# helper function to get jwt token from request
+def get_token_from_header(request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise AuthenticationFailed("Authorization header missing.")
+
+    parts = auth_header.split()
+    if parts[0].lower() != "bearer" or len(parts) != 2:
+        raise AuthenticationFailed("Invalid Authorization header format.")
+
+    return parts[1]
 
 
 @api_view(['POST'])
@@ -121,4 +139,45 @@ def password_reset(request):
         return Response(data={'msg': 'Password was changed successully.'}, status=status.HTTP_202_ACCEPTED)
     except VerifyMismatchError:
         return Response(data={'msg': 'Old password does not match.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    # getting token from request
+    token = get_token_from_header(request=request)
+
+    # decoding the token
+    decoded_token = jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=['HS256'],
+        options={'verify_exp': False},
+    )
+
+    # checking if token is valid or expired already
+    exp_timestamp = decoded_token.get('exp')
+    if not exp_timestamp:
+        return Response({'msg': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # calculating remaining lifetime
+    now = timezone.now().timestamp()
+    timeout = int(exp_timestamp - now)
+
+    if timeout <= 0:
+        return Response({'msg': 'Token already expired.'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # hashing token to reduce its length and for security
+    key = hashlib.sha256(string=token.encode()).hexdigest()
+
+    # blacklisting the hashed token
+    cache.set(
+        key=f"blacklisted_token:{key}",
+        value="true",
+        timeout=timeout
+    )
+
+    # returning response
+    return Response(data={'msg': 'Logout successful.'}, status=status.HTTP_200_OK)
+
         
