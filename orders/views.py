@@ -96,12 +96,17 @@ def create_payment_intent(request, id):
         amount=total_price,
         currency='usd',
         payment_method="pm_card_visa",
-        confirm=True, # auto-confirm, change it for production
-        automatic_payment_methods={'enabled': True, "allow_redirects": "never"},
+        automatic_payment_methods={'enabled': True, 'allow_redirects': 'never'},
         metadata={
             'order_id': order_object.id,
             'user_id': request.user.id,
         }
+    )
+
+    # confirmin payment intent (for testing)
+    intent = stripe.PaymentIntent.confirm(
+        intent.id,
+        payment_method="pm_card_visa"
     )
 
     # saving payment intent id to the db
@@ -132,18 +137,21 @@ def stripe_webhook(request):
         payment_intent_id = intent['id']
 
         try:
-            # getting required order and marking it as paid
+            # getting required order
             order_object = Order.objects.get(payment_intent_id=payment_intent_id)
-            order_object.status = 'paid'
-            order_object.save()
 
-            # updating products' stock
-            items_query = OrderItem.objects.filter(order=order_object)
+            # updating products' stock and checking if stock is sufficient
+            items_query = order_object.items.all()
             for item in items_query:
-                current_product = Product.objects.get(item.product)
+                current_product = item.product
+                if item.quantity > current_product.stock:
+                    return Response(data={'msg': f'Insufficient stock for {current_product.name}'}, status=status.HTTP_400_BAD_REQUEST)
                 current_product.stock -= item.quantity
                 current_product.save()
-
+            
+            # marking order as paid
+            order_object.status = 'paid'
+            order_object.save()
         except Order.DoesNotExist:
             return HttpResponse(status=404)
 
