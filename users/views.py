@@ -4,7 +4,7 @@ from rest_framework import status
 from .models import CustomUser
 from .serializers import UserSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from argon2.exceptions import VerifyMismatchError
 from django.utils import timezone
 from rest_framework.throttling import UserRateThrottle
@@ -40,6 +40,7 @@ def get_token_from_header(request):
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 @throttle_classes([AuthorizationThrottle])
 def register(request):
     # creating a new user from json data
@@ -64,6 +65,7 @@ def register(request):
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 @throttle_classes([AuthorizationThrottle])
 def login(request):
     # getting data from json request

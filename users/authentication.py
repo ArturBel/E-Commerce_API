@@ -2,6 +2,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from django.core.cache import cache
 from django.conf import settings
+from users.models import CustomUser
 import jwt
 import hashlib
 
@@ -17,7 +18,6 @@ class JWTAuthentication(BaseAuthentication):
             raise AuthenticationFailed("Invalid Authorization header.")
 
         token = parts[1]
-
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
         if cache.get(f"blacklisted_token:{token_hash}"):
@@ -34,4 +34,14 @@ class JWTAuthentication(BaseAuthentication):
         except jwt.InvalidTokenError:
             raise AuthenticationFailed("Invalid token.")
 
-        return (None, payload)
+        user_id = payload.get("user_id")
+        if not user_id:
+            raise AuthenticationFailed("Invalid payload.")
+
+        try:
+            user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            raise AuthenticationFailed("User not found.")
+
+        return (user, token)
+
