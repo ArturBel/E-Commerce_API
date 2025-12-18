@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from cart.views import get_user_cart
 from cart.models import CartItem
 from .models import Order, OrderItem
+from products.models import Product
 from .serializers import OrderItemSerializer, OrderSerializer
 from django.shortcuts import get_object_or_404
 import stripe
@@ -123,20 +124,26 @@ def stripe_webhook(request):
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
     except Exception as error:
-        print("Webhook error:", error)
-        print("Sig header:", sig_header)
-        return HttpResponse(status=400)
+        return HttpResponse(data={'msg': f'{error}'}, status=400)
 
     # logic for successful payment
     if event['type'] == 'payment_intent.succeeded':
         intent = event['data']['object']
         payment_intent_id = intent['id']
 
-        # getting required order and marking it as paid
         try:
-            order = Order.objects.get(payment_intent_id=payment_intent_id)
-            order.status = 'paid'
-            order.save()
+            # getting required order and marking it as paid
+            order_object = Order.objects.get(payment_intent_id=payment_intent_id)
+            order_object.status = 'paid'
+            order_object.save()
+
+            # updating products' stock
+            items_query = OrderItem.objects.filter(order=order_object)
+            for item in items_query:
+                current_product = Product.objects.get(item.product)
+                current_product.stock -= item.quantity
+                current_product.save()
+
         except Order.DoesNotExist:
             return HttpResponse(status=404)
 
